@@ -1,5 +1,5 @@
 import customtkinter as ctk 
-from tkinter import messagebox, filedialog
+from tkinter import messagebox, filedialog, simpledialog, StringVar
 import random
 import pygame
 import os
@@ -138,7 +138,11 @@ class MusicPlayer:
     """Core player logic and in-memory data storage."""
     def __init__(self):
         self.library = DoublyLinkedList()
-        self.playlist = DoublyLinkedList()
+
+        # Multi-playlist: key=playlist name, value=DoublyLinkedList()
+        self.playlists = {}
+        self.current_playlist_name = "My Playlist"
+
         self.queue = Queue()
         self.history = Stack()
         self.favorites = set()
@@ -149,40 +153,100 @@ class MusicPlayer:
 
         # Load saved data
         self.load_library()
-        self.load_playlist()   # load playlist after library so IDs resolve correctly
+        self.load_playlists()   # load playlists after library so IDs resolve correctly
+
+        # Ensure at least one playlist exists
+        if not self.playlists:
+            self.playlists[self.current_playlist_name] = DoublyLinkedList()
+            self.save_playlists()
 
     def get_next_id(self):
         songs = self.library.get_all()
         return max([s.id for s in songs], default=0) + 1
 
-    #  playlist persistence 
-    def save_playlist(self):
-        """Simpan playlist ke playlist.json sebagai list ID lagu."""
+    #  playlist persistence (multi-playlist) 
+    def save_playlists(self):
+        """Simpan semua playlist ke playlists.json sebagai dict {nama_playlist: [id_lagu, ...]}."""
         try:
-            ids = [song.id for song in self.playlist.get_all()]
-            with open("playlist.json", "w") as f:
-                json.dump(ids, f, indent=4)
+            data = {}
+            for name, dll in self.playlists.items():
+                data[name] = [song.id for song in dll.get_all()]
+            with open("playlists.json", "w") as f:
+                json.dump(data, f, indent=4)
         except Exception as e:
-            print("Failed to save playlist:", e)
+            print("Failed to save playlists:", e)
 
-    def load_playlist(self):
-        """Muat playlist dari playlist.json bila ada."""
+    def load_playlists(self):
+        """Muat semua playlist dari playlists.json. Jika hanya ada playlist.json lama, migrasikan."""
         try:
-            if not os.path.isfile("playlist.json"):
+            # Migration: old single-playlist file
+            if (not os.path.isfile("playlists.json")) and os.path.isfile("playlist.json"):
+                with open("playlist.json", "r") as f:
+                    ids = json.load(f)
+                dll = DoublyLinkedList()
+                for song_id in ids:
+                    song = self.library.find_by_id(song_id)
+                    if song:
+                        dll.add(song)
+                self.playlists[self.current_playlist_name] = dll
+                # save as new format
+                self.save_playlists()
                 return
-            with open("playlist.json", "r") as f:
-                ids = json.load(f)
 
-            # rebuild playlist using songs from library
-            for song_id in ids:
-                song = self.library.find_by_id(song_id)
-                if song:
-                    self.playlist.add(song)
+            if not os.path.isfile("playlists.json"):
+                return
+
+            with open("playlists.json", "r") as f:
+                data = json.load(f)
+
+            # rebuild playlists using songs from library
+            for name, ids in (data or {}).items():
+                dll = DoublyLinkedList()
+                for song_id in ids:
+                    song = self.library.find_by_id(song_id)
+                    if song:
+                        dll.add(song)
+                self.playlists[name] = dll
 
         except Exception as e:
-            print("Failed to load playlist:", e)
+            print("Failed to load playlists:", e)
 
-    #  library persistence (optional helpers) 
+    def create_playlist(self, name: str):
+        name = (name or "").strip()
+        if not name:
+            return False
+        if name not in self.playlists:
+            self.playlists[name] = DoublyLinkedList()
+            self.save_playlists()
+        return True
+
+    def get_playlist_names(self):
+        return list(self.playlists.keys())
+
+    def get_playlist(self, name: str):
+        return self.playlists.get(name)
+
+    def add_to_playlist(self, playlist_name: str, song_id: int):
+        if playlist_name not in self.playlists:
+            self.create_playlist(playlist_name)
+        song = self.library.find_by_id(song_id)
+        if not song:
+            return False
+        self.playlists[playlist_name].add(song)
+        self.save_playlists()
+        return True
+
+    def remove_song_from_all_playlists(self, song_id: int):
+        """Hapus lagu (by id) dari semua playlist."""
+        changed = False
+        for name, dll in self.playlists.items():
+            if dll.delete(song_id):
+                changed = True
+        if changed:
+            self.save_playlists()
+        return changed
+
+#  library persistence (optional helpers) 
     def save_library(self):
         """Simpan seluruh library ke songs.json (dipakai jika ingin persist library)."""
         try:
@@ -245,7 +309,10 @@ class MusicPlayer:
     def _get_ordered_list(self):
         """Return list following current_mode and list_order so next/prev follow visual order."""
         if self.current_mode == "playlist":
-            base = self.playlist.get_all()
+            pll = self.playlists.get(self.current_playlist_name)
+            if pll is None:
+                pll = self.playlists.get("My Playlist")
+            base = pll.get_all() if pll else []
         else:
             base = self.library.get_all()
         if self.list_order == "desc":
@@ -303,13 +370,13 @@ class AdminController:
 
     def delete_song(self, song_id):
         ok = self.player.library.delete(song_id)
-        # also try to remove from playlist (ignore if not present)
+
+        # also remove from ALL playlists (ignore if not present)
         try:
-            self.player.playlist.delete(song_id)
-            # persist playlist after deletion
-            self.player.save_playlist()
+            self.player.remove_song_from_all_playlists(song_id)
         except Exception:
             pass
+
         # persist library
         try:
             self.player.save_library()
@@ -319,20 +386,28 @@ class AdminController:
 
 
 class UserController:
-    """Contains user-facing operations (search, playlist, favs, history)."""
+    """Contains user-facing operations (search, playlists, favs, history)."""
     def __init__(self, player: MusicPlayer):
         self.player = player
 
     def search(self, keyword):
         return self.player.library.search(keyword)
 
-    def add_to_playlist(self, song_id):
-        song = self.player.library.find_by_id(song_id)
-        if not song:
-            return False
-        self.player.playlist.add(song)
-        return True
+    # ---- multi-playlist operations ----
+    def create_playlist(self, name: str):
+        return self.player.create_playlist(name)
 
+    def get_playlists(self):
+        return self.player.get_playlist_names()
+
+    def get_playlist_songs(self, playlist_name: str):
+        pll = self.player.get_playlist(playlist_name)
+        return pll.get_all() if pll else []
+
+    def add_to_playlist(self, song_id, playlist_name="My Playlist"):
+        return self.player.add_to_playlist(playlist_name, song_id)
+
+    # ---- favorites & history ----
     def toggle_favorite(self, song_id):
         if song_id in self.player.favorites:
             self.player.favorites.remove(song_id)
@@ -345,7 +420,6 @@ class UserController:
 
     def get_history(self):
         return list(reversed(self.player.history.get_all()))
-
 
 # UI - CUSTOMTKINTER
 
@@ -655,8 +729,8 @@ class MusicPlayerGUI:
                     pass
             return
 
-        # Jika lagu baru atau sedang pause → PLAY
-        self.play_song(song, "library")
+        # Jika lagu baru atau sedang pause → PLAY (ikuti mode view saat ini: library / playlist)
+        self.play_song(song, self.player.current_mode)
 
 
     # ADMIN INTERFACE (ADMIN PAGE & FEATURES)
@@ -1100,16 +1174,71 @@ class MusicPlayerGUI:
     def user_playlist(self):
         for w in self.content.winfo_children():
             w.destroy()
-        ctk.CTkLabel(self.content, text="My Playlist", font=("Arial", 28, "bold"), text_color="#ffffff").pack(anchor="w", pady=(10, 20))
-        songs = self.player.playlist.get_all()
-        # show playlist in asc order (as stored)
-        self.player.current_mode = "playlist"
-        self.player.list_order = "asc"
-        if not songs:
-            ctk.CTkLabel(self.content, text="Playlist is empty", font=("Arial", 13), text_color="#64748b").pack(pady=30)
-        else:
-            for song in songs:
-                self.create_song_card(self.content, song)
+
+        ctk.CTkLabel(self.content, text="My Playlists", font=("Arial", 28, "bold"), text_color="#ffffff").pack(anchor="w", pady=(10, 12))
+
+        # Pastikan ada minimal 1 playlist
+        playlists = self.user.get_playlists()
+        if not playlists:
+            self.player.create_playlist(self.player.current_playlist_name)
+            playlists = self.user.get_playlists()
+
+        # Pilih playlist aktif
+        default_name = self.player.current_playlist_name if self.player.current_playlist_name in playlists else playlists[0]
+        playlist_var = StringVar(value=default_name)
+
+        top = ctk.CTkFrame(self.content, fg_color="transparent")
+        top.pack(fill="x", pady=(0, 10))
+
+        ctk.CTkLabel(top, text="Select playlist:", font=("Arial", 12), text_color="#94a3b8").pack(side="left", padx=(0, 10))
+
+        # Area lagu dalam playlist
+        songs_area = ctk.CTkFrame(self.content, fg_color="transparent")
+        songs_area.pack(fill="both", expand=True)
+
+        def render_playlist():
+            # set mode agar tombol play mengikuti konteks playlist
+            name = playlist_var.get()
+            self.player.current_mode = "playlist"
+            self.player.current_playlist_name = name
+            self.player.list_order = "asc"
+
+            for ww in songs_area.winfo_children():
+                ww.destroy()
+
+            songs = self.user.get_playlist_songs(name)
+            if not songs:
+                ctk.CTkLabel(songs_area, text="Playlist is empty", font=("Arial", 13), text_color="#64748b").pack(pady=30)
+            else:
+                for song in songs:
+                    self.create_song_card(songs_area, song)
+
+        dropdown = ctk.CTkOptionMenu(
+            top,
+            variable=playlist_var,
+            values=playlists,
+            width=220,
+            command=lambda _=None: render_playlist()
+        )
+        dropdown.pack(side="left")
+
+        def new_playlist():
+            name = simpledialog.askstring("New Playlist", "Enter new playlist name:")
+            if not name:
+                return
+            ok = self.user.create_playlist(name)
+            if ok:
+                # refresh UI & set as current
+                self.player.current_playlist_name = name
+                self.user_playlist()
+
+        ctk.CTkButton(top, text="➕ New Playlist", width=140, fg_color="#6366f1", hover_color="#4f46e5",
+                     command=new_playlist).pack(side="left", padx=10)
+
+        ctk.CTkButton(top, text="🔄 Refresh", width=110, fg_color="#1e293b", hover_color="#334155",
+                     command=render_playlist).pack(side="left")
+
+        render_playlist()
 
     def user_favorites(self):
         for w in self.content.winfo_children():
@@ -1146,16 +1275,67 @@ class MusicPlayerGUI:
         self.user_home()
 
     def add_playlist_and_notify(self, song):
-        added = self.user.add_to_playlist(song.id)
-        if added:
-            # simpan playlist permanen setiap kali diubah
-            try:
-                self.player.save_playlist()
-            except Exception:
-                pass
-            messagebox.showinfo("Success", f"'{song.title}' added to playlist!")
-        else:
-            messagebox.showerror("Error", "Cannot add to playlist.")
+        playlists = self.user.get_playlists()
+
+        # Jika belum ada playlist sama sekali
+        if not playlists:
+            self.player.create_playlist("My Playlist")
+            playlists = ["My Playlist"]
+
+        popup = ctk.CTkToplevel(self.window)
+        popup.title("Pilih Playlist")
+        popup.geometry("300x350")
+        popup.transient(self.window)
+        popup.grab_set()
+
+        ctk.CTkLabel(
+            popup,
+            text=f"Tambahkan ke playlist:",
+            font=("Arial", 14, "bold")
+        ).pack(pady=15)
+
+        btn_frame = ctk.CTkFrame(popup, fg_color="transparent")
+        btn_frame.pack(fill="both", expand=True, padx=20)
+
+        # Tombol playlist yang SUDAH ADA
+        for name in playlists:
+            def make_cmd(pname=name):
+                return lambda: (
+                    self.user.add_to_playlist(song.id, pname),
+                    self.player.save_playlists(),
+                    popup.destroy(),
+                    messagebox.showinfo("Berhasil", f"Lagu ditambahkan ke '{pname}'")
+                )
+
+            ctk.CTkButton(
+                btn_frame,
+                text=name,
+                height=40,
+                fg_color="#6366f1",
+                hover_color="#4f46e5",
+                command=make_cmd()
+            ).pack(fill="x", pady=5)
+
+        # Tombol buat playlist baru
+        def new_playlist():
+            dialog = ctk.CTkInputDialog(
+                title="Playlist Baru",
+                text="Nama playlist:"
+            )
+            name = dialog.get_input()
+            if name:
+                self.player.create_playlist(name)
+                popup.destroy()
+                self.add_playlist_and_notify(song)
+
+        ctk.CTkButton(
+            popup,
+            text="➕ Playlist Baru",
+            height=40,
+            fg_color="#1e293b",
+            hover_color="#334155",
+            command=new_playlist
+        ).pack(pady=10)
 
     # PLAYBACK CONTROL HANDLERS (PLAY, NEXT, PREV, STOP)
    
