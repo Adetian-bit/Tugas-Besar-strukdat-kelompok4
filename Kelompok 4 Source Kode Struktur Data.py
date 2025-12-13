@@ -870,6 +870,32 @@ class MusicPlayerGUI:
         duration = self.entries["duration"].get().strip()
         file_path = self.entries["file"].get().strip()
 
+        
+        # FILE TETAP WAJIB
+        if not file_path or not os.path.isfile(file_path):
+            messagebox.showerror("Error", "File lagu wajib dipilih dan harus valid!")
+            return
+
+        # DEFAULT VALUE JIKA KOSONG
+        title = title if title else "Unknown Title"
+        artist = artist if artist else "Unknown Artist"
+        genre = genre if genre else "Unknown Genre"
+        album = album if album else "Unknown Album"
+
+        # year & duration boleh kosong
+        year = year if year else None
+        duration = duration if duration else None
+
+        # TAMBAH LAGU KE LIBRARY
+        success, msg = self.admin.add_song(
+            title, artist, genre, album, year, duration, file_path
+        )
+
+        if success:
+            messagebox.showinfo("Success", "Lagu berhasil ditambahkan!")
+            self.admin_view_songs()  # refresh library
+        else:
+            messagebox.showerror("Error", msg)
 
 
     def admin_delete(self, song_id):
