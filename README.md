@@ -33,7 +33,7 @@ Aplikasi memiliki dua peran pengguna, yaitu **Admin** dan **User**. Admin bertug
 * Menandai lagu sebagai **favorite**
 * Melihat **riwayat lagu** yang telah diputar
 
-### 🧠 Struktur Data yang Digunakan
+### Struktur Data yang Digunakan
 
 * **Doubly Linked List**: penyimpanan lagu di library dan playlist
 * **Queue**: antrian lagu
@@ -44,7 +44,7 @@ Aplikasi memiliki dua peran pengguna, yaitu **Admin** dan **User**. Admin bertug
 
 ## Cara Menjalankan Program
 
-### 1️⃣ Persyaratan
+### 1. Persyaratan
 
 Pastikan Python sudah terinstall (versi 3.8 atau lebih baru).
 
@@ -54,7 +54,7 @@ Install library yang dibutuhkan dengan perintah:
 pip install customtkinter pygame
 ```
 
-### 2️⃣ Menjalankan Program
+### 2. Menjalankan Program
 
 Buka terminal / command prompt pada folder project, lalu jalankan:
 
