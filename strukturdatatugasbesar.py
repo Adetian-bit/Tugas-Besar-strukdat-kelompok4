@@ -1009,13 +1009,6 @@ class MusicPlayerGUI:
 
         
         # ACTUAL MUSIC PLAYBACK
-        # compute length
-        length = self._get_song_length_seconds(song)
-        self.current_song_length = length if length else 0.0
-        # set total time label
-        self._set_progress_total_label(self.current_song_length)
-        # reset progress
-        self.progress_value = 0.0
         try:
             if song.file_path:
                 if not os.path.isfile(song.file_path):
