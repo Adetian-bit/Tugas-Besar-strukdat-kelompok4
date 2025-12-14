@@ -1,10 +1,3 @@
-"""Controller layer for Groovy Player.
-
-Contains:
-- AdminController
-- UserController
-"""
-
 from __future__ import annotations
 
 from backend_groovy_player import MusicPlayer, Song
