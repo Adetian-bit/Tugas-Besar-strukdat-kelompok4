@@ -1,0 +1,64 @@
+
+
+[
+    {
+        "id": 1,
+        "title": "ok",
+        "artist": "sahrini",
+        "genre": "pop",
+        "album": "hindia",
+        "year": 2005,
+        "duration": "2:08",
+        "file_path": ""
+    },
+    {
+        "id": 2,
+        "title": "",
+        "artist": "",
+        "genre": "",
+        "album": "",
+        "year": 2015,
+        "duration": "",
+        "file_path": "C:/Users/ILHAM MAULANA/Downloads/Peterpan - Mimpi Yang Sempurna ( lirik Lagu ) (online-audio-converter.com).mp3"
+    },
+    {
+        "id": 3,
+        "title": "",
+        "artist": "",
+        "genre": "",
+        "album": "",
+        "year": 78888,
+        "duration": "",
+        "file_path": "C:/Users/ILHAM MAULANA/Downloads/Peterpan - Mimpi Yang Sempurna ( lirik Lagu ) (online-audio-converter.com).mp3"
+    },
+    {
+        "id": 4,
+        "title": "",
+        "artist": "",
+        "genre": "",
+        "album": "",
+        "year": 4,
+        "duration": "",
+        "file_path": "C:/Users/ILHAM MAULANA/Downloads/everythink you are.mp3"
+    },
+    {
+        "id": 5,
+        "title": "ade",
+        "artist": "ade",
+        "genre": "pop",
+        "album": "",
+        "year": 2005,
+        "duration": "1:30",
+        "file_path": "C:/Users/ILHAM MAULANA/Downloads/WhatsApp Audio 2025-12-04 at 17.16.03_8811e895.mp3"
+    },
+    {
+        "id": 6,
+        "title": "",
+        "artist": "",
+        "genre": "",
+        "album": "",
+        "year": 1906,
+        "duration": "",
+        "file_path": "C:/Users/ILHAM MAULANA/Downloads/WhatsApp Audio 2025-12-04 at 17.16.03_8811e895.mp3"
+    }
+]
