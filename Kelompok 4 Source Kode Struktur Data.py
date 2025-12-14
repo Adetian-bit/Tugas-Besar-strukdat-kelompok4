@@ -165,6 +165,43 @@ class MusicPlayer:
         songs = self.library.get_all()
         return max([s.id for s in songs], default=0) + 1
 
+    def _norm(self, v):
+        try:
+            return (v or "").strip().lower()
+        except Exception:
+            return ""
+
+    def library_has_duplicate(self, title: str, artist: str, file_path: str):
+        """Cek duplikasi lagu di library.
+        Prioritas: file_path sama (lebih akurat), lalu title+artist sama (case-insensitive).
+        """
+        t = self._norm(title)
+        a = self._norm(artist)
+
+        fp_in = None
+        try:
+            if file_path:
+                fp_in = os.path.normcase(os.path.normpath(file_path))
+        except Exception:
+            fp_in = None
+
+        for s in self.library.get_all():
+            # check file path duplicate
+            try:
+                if fp_in and s.file_path:
+                    fp2 = os.path.normcase(os.path.normpath(s.file_path))
+                    if fp2 == fp_in:
+                        return True
+            except Exception:
+                pass
+
+            # check title+artist duplicate
+            if t and a:
+                if self._norm(s.title) == t and self._norm(s.artist) == a:
+                    return True
+
+        return False
+
     #  playlist persistence (multi-playlist) 
     def save_playlists(self):
         """Simpan semua playlist ke playlists.json sebagai dict {nama_playlist: [id_lagu, ...]}."""
@@ -185,7 +222,11 @@ class MusicPlayer:
                 with open("playlist.json", "r") as f:
                     ids = json.load(f)
                 dll = DoublyLinkedList()
+                seen = set()
                 for song_id in ids:
+                    if song_id in seen:
+                        continue
+                    seen.add(song_id)
                     song = self.library.find_by_id(song_id)
                     if song:
                         dll.add(song)
@@ -203,7 +244,11 @@ class MusicPlayer:
             # rebuild playlists using songs from library
             for name, ids in (data or {}).items():
                 dll = DoublyLinkedList()
+                seen = set()
                 for song_id in ids:
+                    if song_id in seen:
+                        continue
+                    seen.add(song_id)
                     song = self.library.find_by_id(song_id)
                     if song:
                         dll.add(song)
@@ -230,9 +275,18 @@ class MusicPlayer:
     def add_to_playlist(self, playlist_name: str, song_id: int):
         if playlist_name not in self.playlists:
             self.create_playlist(playlist_name)
+
         song = self.library.find_by_id(song_id)
         if not song:
             return False
+
+        # Prevent duplicates inside the same playlist
+        try:
+            if self.playlists[playlist_name].find_by_id(song_id) is not None:
+                return False
+        except Exception:
+            pass
+
         self.playlists[playlist_name].add(song)
         self.save_playlists()
         return True
@@ -293,8 +347,8 @@ class MusicPlayer:
                     s.get("duration"),
                     s.get("file_path")
                 )
-                # avoid duplicate IDs if repeated load
-                if self.library.find_by_id(song.id) is None:
+                # avoid duplicates when loading (by id, file_path, or title+artist)
+                if self.library.find_by_id(song.id) is None and (not self.library_has_duplicate(song.title, song.artist, song.file_path)):
                     self.library.add(song)
 
         except FileNotFoundError:
@@ -366,8 +420,17 @@ class AdminController:
         return self.player.library.get_all()
 
     def add_song(self, title, artist, genre, album, year, duration, file_path):
+        # Prevent duplicate songs in library
         try:
-            song = Song(self.player.get_next_id(), title, artist, genre, album, int(year) if year else None, duration, file_path)
+            if self.player.library_has_duplicate(title, artist, file_path):
+                return False, "Duplicate song detected (already exists in Library)."
+        except Exception:
+            # If duplicate check fails for any reason, continue (fail-open) to avoid blocking.
+            pass
+
+        try:
+            song = Song(self.player.get_next_id(), title, artist, genre, album,
+                        int(year) if year else None, duration, file_path)
             self.player.library.add(song)
             # persist library
             try:
@@ -1420,12 +1483,19 @@ class MusicPlayerGUI:
         # Tombol playlist yang SUDAH ADA
         for name in playlists:
             def make_cmd(pname=name):
-                return lambda: (
-                    self.user.add_to_playlist(song.id, pname),
-                    self.player.save_playlists(),
-                    popup.destroy(),
-                    messagebox.showinfo("Berhasil", f"Lagu ditambahkan ke '{pname}'")
-                )
+                def _cmd():
+                    added = self.user.add_to_playlist(song.id, pname)
+                    # persist playlists
+                    try:
+                        self.player.save_playlists()
+                    except Exception:
+                        pass
+                    popup.destroy()
+                    if added:
+                        messagebox.showinfo("Berhasil", f"Lagu ditambahkan ke '{pname}'")
+                    else:
+                        messagebox.showwarning("Info", f"Lagu sudah ada di '{pname}'")
+                return _cmd
 
             ctk.CTkButton(
                 btn_frame,
