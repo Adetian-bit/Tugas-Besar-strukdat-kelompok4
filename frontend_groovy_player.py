@@ -1,9 +1,3 @@
-"""Frontend / View layer (CustomTkinter GUI) for Groovy Player.
-
-Run this file to start the app:
-    python frontend_groovy_player.py
-"""
-
 from __future__ import annotations
 
 import os
