@@ -6,6 +6,7 @@ import os
 import json
 import time
 import math
+from typing import Optional
 
 # safer init for pygame mixer
 try:
@@ -235,6 +236,15 @@ class MusicPlayer:
         self.playlists[playlist_name].add(song)
         self.save_playlists()
         return True
+    def remove_from_playlist(self, playlist_name: str, song_id: int):
+        """Hapus lagu (by id) dari playlist tertentu."""
+        if playlist_name not in self.playlists:
+            return False
+        ok = self.playlists[playlist_name].delete(song_id)
+        if ok:
+            self.save_playlists()
+        return ok
+
 
     def remove_song_from_all_playlists(self, song_id: int):
         """Hapus lagu (by id) dari semua playlist."""
@@ -406,6 +416,9 @@ class UserController:
 
     def add_to_playlist(self, song_id, playlist_name="My Playlist"):
         return self.player.add_to_playlist(playlist_name, song_id)
+    def remove_from_playlist(self, song_id, playlist_name):
+        return self.player.remove_from_playlist(playlist_name, song_id)
+
 
     # ---- favorites & history ----
     def toggle_favorite(self, song_id):
@@ -432,6 +445,10 @@ class MusicPlayerGUI:
         self.current_user = None
         self.play_buttons = {}
         self.admin_play_buttons = {}
+
+        # Bottom player widgets
+        self.bottom_player_frame = None
+        self.btn_play_toggle = None
         self.users = {
             "ade": User("ade", "Ade Tian"),
             "guest": User("guest", "Guest User"),
@@ -463,6 +480,14 @@ class MusicPlayerGUI:
     def clear_window(self):
         for w in self.window.winfo_children():
             w.destroy()
+        # reset references to destroyed widgets
+        self.bottom_player_frame = None
+        self.btn_play_toggle = None
+        self.now_playing = None
+        self.now_artist = None
+        self.progress_bar = None
+        self.progress_label_elapsed = None
+        self.progress_label_total = None
         self.window.update()
 
     #  Login / Role selection
@@ -704,6 +729,13 @@ class MusicPlayerGUI:
             pygame.mixer.music.stop()
         except Exception:
             pass
+
+        # Reset state so admin/user next login starts clean
+        self.player.is_playing = False
+        self.player.current_song = None
+        self.player.current_mode = "library"
+        self.player.list_order = "asc"
+        self.player.current_playlist_name = "My Playlist"
         
         # Stop progress updates
         if self._progress_update_job:
@@ -717,19 +749,24 @@ class MusicPlayerGUI:
         self.window.after(10, self.show_login)
 
     def toggle_play(self, song):
-        # Jika lagu ini sedang diputar → STOP
-        if self.player.current_song == song and self.player.is_playing:
-            self.stop_current()
+        """Toggle play dari kartu lagu (user & admin):
+        - Klik pertama: Play
+        - Klik kedua saat lagu yang sama sedang diputar: Stop
+        - Klik saat lagu yang sama sedang pause: Resume
+        """
+        # Jika lagu ini yang sedang aktif
+        if self.player.current_song == song:
+            if self.player.is_playing:
+                # Klik kedua → STOP
+                self.stop_current()
+                return
+            else:
+                # Resume dari pause
+                self.resume_current()
+                self._update_all_play_icons()
+                return
 
-            # Kembalikan ikon semua tombol ke ▶
-            for btn in self.play_buttons.values():
-                try:
-                    btn.configure(text="▶")
-                except Exception:
-                    pass
-            return
-
-        # Jika lagu baru atau sedang pause → PLAY (ikuti mode view saat ini: library / playlist)
+        # Lagu baru → PLAY
         self.play_song(song, self.player.current_mode)
 
 
@@ -737,85 +774,90 @@ class MusicPlayerGUI:
 
     def show_admin_page(self):
         self.clear_window()
-        
-        # Set background dulu
+
+        # Pastikan mode default admin adalah library (penting untuk play random saat belum ada lagu)
+        self.player.current_mode = "library"
+        self.player.list_order = "asc"
+
         self.window.configure(fg_color="#0a0a0a")
         self.window.update()
-        
+
+        # Sidebar (sama gaya dengan user)
         sidebar = ctk.CTkFrame(self.window, width=200, corner_radius=0, fg_color="#0f0f0f")
         sidebar.pack(side="left", fill="y")
         sidebar.pack_propagate(False)
 
-        ctk.CTkLabel(sidebar, text="⚡ Groovy", font=("Arial", 20, "bold"), text_color="#6366f1").pack(pady=(30, 50))
+        ctk.CTkLabel(sidebar, text="⚡ Groovy", font=("Arial", 20, "bold"), text_color="#6366f1").pack(pady=(30, 10))
+        ctk.CTkLabel(sidebar, text="ADMIN MENU", font=("Arial", 10, "bold"), text_color="#64748b").pack(pady=(20, 10), padx=20, anchor="w")
 
-        menus = [("📚 Library", self.admin_view_songs), ("➕ Add Song", self.admin_add_song), ("🚪 Logout", self.logout)]
+        menus = [
+            ("📚 Library", self.admin_view_songs),
+            ("➕ Add Song", self.admin_add_song),
+        ]
         for text, cmd in menus:
-            ctk.CTkButton(sidebar, text=text, width=170, height=38, font=("Arial", 13), corner_radius=8,
-                        fg_color="transparent", hover_color="#1e293b", anchor="w", command=cmd).pack(pady=4, padx=15)
+            ctk.CTkButton(
+                sidebar, text=text, width=170, height=38, font=("Arial", 13),
+                corner_radius=8, fg_color="transparent",
+                hover_color="#1e293b", anchor="w", command=cmd
+            ).pack(pady=3, padx=15)
 
-        self.content = ctk.CTkFrame(self.window, fg_color="#0a0a0a")
-        self.content.pack(side="right", fill="both", expand=True, padx=25, pady=25)
-        
-        # Update UI dulu sebelum load data
-        self.window.update()
+        ctk.CTkButton(
+            sidebar, text="🚪 Logout", width=170, height=38, font=("Arial", 13),
+            corner_radius=8, fg_color="transparent",
+            hover_color="#1e293b", anchor="w", command=self.logout
+        ).pack(side="bottom", pady=20, padx=15)
 
-        # Load songs di thread terpisah atau gunakan after
+        # Main content area
+        self.main_content = ctk.CTkFrame(self.window, fg_color="#0a0a0a")
+        self.main_content.pack(side="top", fill="both", expand=True)
+
+        topbar = ctk.CTkFrame(self.main_content, height=60, fg_color="transparent")
+        topbar.pack(fill="x", padx=25, pady=(15, 0))
+
+        # Right controls (nama admin + logout)
+        right_controls = ctk.CTkFrame(topbar, fg_color="transparent")
+        right_controls.pack(side="right")
+
+        ctk.CTkLabel(right_controls, text=f"👑 {self.current_user.fullname}", font=("Arial", 12)).pack(side="left", padx=(0, 12))
+        ctk.CTkButton(
+            right_controls, text="Logout", width=90, height=32,
+            font=("Arial", 12), corner_radius=8,
+            fg_color="#1e293b", hover_color="#334155",
+            command=self.logout
+        ).pack(side="left")
+
+        # Scrollable list area (beri ruang untuk player bottom)
+        self.content = ctk.CTkScrollableFrame(self.main_content, fg_color="transparent")
+        self.content.pack(fill="both", expand=True, padx=25, pady=(10, 120))
+
+        # Player bottom (UI sama dengan user)
+        self.create_player_bottom()
+
+        # Load halaman default
         self.window.after(10, self.admin_view_songs)
 
     def admin_view_songs(self):
+        # bersihkan konten
         for w in self.content.winfo_children():
             w.destroy()
 
-        header = ctk.CTkFrame(self.content, fg_color="transparent")
-        header.pack(fill="x", pady=(0, 10))
-        ctk.CTkLabel(header, text="Library (Admin)", font=("Arial", 24, "bold"), text_color="#ffffff").pack(side="left", padx=(4,0))
+        self.admin_play_buttons = {}
 
-        # Admin-level Prev/Next controls (so admin can navigate)
-        admin_controls = ctk.CTkFrame(header, fg_color="transparent")
-        admin_controls.pack(side="right")
-        ctk.CTkButton(admin_controls, text="⏮ Prev", width=90, height=34, command=self.play_prev).pack(side="left", padx=4)
-        ctk.CTkButton(admin_controls, text="⏭ Next", width=90, height=34, command=self.play_next).pack(side="left", padx=4)
+        ctk.CTkLabel(self.content, text="Library (Admin)", font=("Arial", 28, "bold"), text_color="#ffffff")            .pack(anchor="w", pady=(10, 15))
 
-        table = ctk.CTkFrame(self.content, fg_color="#0f0f0f", corner_radius=12)
-        table.pack(fill="both", expand=True, pady=(5,0))
+        # admin mode: library asc agar next/prev konsisten
+        self.player.current_mode = "library"
+        self.player.list_order = "asc"
 
-        thead = ctk.CTkFrame(table, fg_color="transparent", height=45)
-        thead.pack(fill="x", padx=15, pady=(15, 5))
+        songs = self.admin.list_songs()
+        if not songs:
+            ctk.CTkLabel(self.content, text="Library is empty", font=("Arial", 13), text_color="#64748b").pack(pady=30)
+        else:
+            for song in songs:
+                self.create_song_card_admin(self.content, song)
 
-        cols = [("#", 0.06), ("Title", 0.25), ("Artist", 0.22), ("Genre", 0.15), ("Album", 0.22)]
-        x = 0
-        for text, w in cols:
-            ctk.CTkLabel(thead, text=text, font=("Arial", 11, "bold"), text_color="#64748b", anchor="w").place(relx=x, rely=0.5, anchor="w")
-            x += w
-
-        scroll = ctk.CTkScrollableFrame(table, fg_color="transparent")
-        scroll.pack(fill="both", expand=True, padx=10, pady=(0, 10))
-
-        for song in self.admin.list_songs():
-            row = ctk.CTkFrame(scroll, fg_color="#1a1a1a", height=50, corner_radius=8)
-            row.pack(fill="x", pady=2)
-
-            data = [(str(song.id), 0.06), (song.title[:22], 0.25), (song.artist[:18], 0.22), (song.genre, 0.15), (song.album[:18], 0.22)]
-            x = 0.02
-            for val, w in data:
-                ctk.CTkLabel(row, text=val, font=("Arial", 11), text_color="#e2e8f0", anchor="w").place(relx=x, rely=0.5, anchor="w")
-                x += w
-
-            play_btn = ctk.CTkButton(
-                row,
-                text="⏵",
-                width=60,
-                height=32,
-                fg_color="#6366f1",
-                hover_color="#4f46e5",
-                command=lambda s=song: self.admin_toggle_play(s)
-            )
-            play_btn.place(relx=0.86, rely=0.5, anchor="center")
-
-            self.admin_play_buttons[song.id] = play_btn
-
-            ctk.CTkButton(row, text="Delete", width=70, height=32, font=("Arial", 10), fg_color="#ef4444",
-                         hover_color="#dc2626", command=lambda s=song: self.admin_delete(s.id)).place(relx=0.94, rely=0.5, anchor="center")
+        # sync ikon sesuai state saat ini
+        self._update_all_play_icons()
 
     def admin_add_song(self):
         for w in self.content.winfo_children():
@@ -974,6 +1016,13 @@ class MusicPlayerGUI:
 
     def admin_delete(self, song_id):
         if messagebox.askyesno("Confirm", "Delete this song?"):
+            # jika lagu yang sedang diputar dihapus, stop dulu
+            try:
+                if self.player.current_song is not None and self.player.current_song.id == song_id:
+                    self.stop_current()
+            except Exception:
+                pass
+
             self.admin.delete_song(song_id)
             self.admin_view_songs()
 
@@ -1055,8 +1104,17 @@ class MusicPlayerGUI:
 
 
     def create_player_bottom(self):
+        # Destroy existing bottom player (avoid duplicates when switching pages)
+        if self.bottom_player_frame is not None:
+            try:
+                self.bottom_player_frame.destroy()
+            except Exception:
+                pass
+            self.bottom_player_frame = None
+
         player = ctk.CTkFrame(self.window, height=120, fg_color="#0f0f0f")
         player.place(relx=0, rely=1, anchor="sw", relwidth=1)
+        self.bottom_player_frame = player
 
         info = ctk.CTkFrame(player, fg_color="transparent")
         info.place(relx=0.02, rely=0.15, anchor="nw")
@@ -1084,21 +1142,29 @@ class MusicPlayerGUI:
         controls = ctk.CTkFrame(player, fg_color="transparent")
         controls.place(relx=0.5, rely=0.73, anchor="center")
 
-        # Buttons: Prev, Play, Pause, Resume, Next
-        btn_prev = ctk.CTkButton(controls, text="⏮", width=45, height=45, font=("Arial", 16), corner_radius=25,
-                                 fg_color="#1e293b", hover_color="#4f46e5", command=self.play_prev)
+        btn_prev = ctk.CTkButton(
+            controls, text="⏮", width=45, height=45, font=("Arial", 16), corner_radius=25,
+            fg_color="#1e293b", hover_color="#4f46e5", command=self.play_prev
+        )
         btn_prev.pack(side="left", padx=8)
 
-        btn_pause = ctk.CTkButton(controls, text="⏸", width=45, height=45, font=("Arial", 16), corner_radius=25,
-                                  fg_color="#1e293b", hover_color="#4f46e5", command=self.pause_current)
-        btn_pause.pack(side="left", padx=8)
+        # Play/Pause toggle button (ikon berubah)
+        self.btn_play_toggle = ctk.CTkButton(
+            controls, text="▶", width=55, height=55, font=("Arial", 18), corner_radius=28,
+            fg_color="#6366f1", hover_color="#4f46e5", command=self.toggle_play_pause_current
+        )
+        self.btn_play_toggle.pack(side="left", padx=10)
 
-
-        btn_next = ctk.CTkButton(controls, text="⏭", width=45, height=45, font=("Arial", 16), corner_radius=25,
-                                 fg_color="#1e293b", hover_color="#4f46e5", command=self.play_next)
+        btn_next = ctk.CTkButton(
+            controls, text="⏭", width=45, height=45, font=("Arial", 16), corner_radius=25,
+            fg_color="#1e293b", hover_color="#4f46e5", command=self.play_next
+        )
         btn_next.pack(side="left", padx=8)
 
-    def create_song_card(self, parent, song):
+        # sync icon state
+        self._sync_bottom_play_icon()
+
+    def create_song_card(self, parent, song, show_remove_from_playlist=False, playlist_name=None):
         card = ctk.CTkFrame(parent, fg_color="#1a1a1a", corner_radius=8, height=70)
         card.pack(fill="x", pady=3)
 
@@ -1125,9 +1191,49 @@ class MusicPlayerGUI:
         # simpan tombol di dict supaya bisa diganti ikon
         self.play_buttons[song.id] = play_btn
 
-        ctk.CTkButton(btns, text="+", width=35, height=35, font=("Arial", 14), fg_color="#1e293b", hover_color="#334155", command=lambda s=song: self.add_playlist_and_notify(s)).pack(side="left", padx=2)
+        if show_remove_from_playlist and playlist_name:
+            # Tombol hapus lagu dari playlist
+            ctk.CTkButton(
+                btns, text="🗑", width=35, height=35, font=("Arial", 14),
+                fg_color="#ef4444", hover_color="#dc2626",
+                command=lambda s=song, pn=playlist_name: self.remove_song_from_playlist_and_refresh(s, pn)
+            ).pack(side="left", padx=2)
+        else:
+            ctk.CTkButton(
+                btns, text="+", width=35, height=35, font=("Arial", 14),
+                fg_color="#1e293b", hover_color="#334155",
+                command=lambda s=song: self.add_playlist_and_notify(s)
+            ).pack(side="left", padx=2)
 
-    # --------------------------------------------------
+    
+    def create_song_card_admin(self, parent, song):
+        """Card lagu untuk admin (UI sama dengan user, tapi ada tombol delete)."""
+        card = ctk.CTkFrame(parent, fg_color="#1a1a1a", corner_radius=8, height=70)
+        card.pack(fill="x", pady=3)
+
+        info = ctk.CTkFrame(card, fg_color="transparent")
+        info.pack(side="left", fill="both", expand=True, padx=15, pady=10)
+
+        ctk.CTkLabel(info, text=song.title, font=("Arial", 13, "bold"), text_color="#ffffff", anchor="w").pack(anchor="w")
+        ctk.CTkLabel(info, text=f"{song.artist} • {song.genre}", font=("Arial", 10), text_color="#94a3b8", anchor="w").pack(anchor="w")
+
+        btns = ctk.CTkFrame(card, fg_color="transparent")
+        btns.pack(side="right", padx=10)
+
+        play_btn = ctk.CTkButton(
+            btns, text="▶", width=40, height=35, font=("Arial", 12),
+            fg_color="#6366f1", hover_color="#4f46e5",
+            command=lambda s=song: self.toggle_play(s)
+        )
+        play_btn.pack(side="left", padx=4)
+        self.admin_play_buttons[song.id] = play_btn
+
+        ctk.CTkButton(
+            btns, text="Delete", width=70, height=35, font=("Arial", 10),
+            fg_color="#ef4444", hover_color="#dc2626",
+            command=lambda s=song: self.admin_delete(s.id)
+        ).pack(side="left", padx=4)
+# --------------------------------------------------
     # USER PAGE SCREENS (HOME, SEARCH, PLAYLIST, FAVORITE, HISTORY)
     # --------------------------------------------------
     def user_home(self):
@@ -1211,7 +1317,7 @@ class MusicPlayerGUI:
                 ctk.CTkLabel(songs_area, text="Playlist is empty", font=("Arial", 13), text_color="#64748b").pack(pady=30)
             else:
                 for song in songs:
-                    self.create_song_card(songs_area, song)
+                    self.create_song_card(songs_area, song, show_remove_from_playlist=True, playlist_name=name)
 
         dropdown = ctk.CTkOptionMenu(
             top,
@@ -1273,6 +1379,20 @@ class MusicPlayerGUI:
         self.user.toggle_favorite(song.id)
         # refresh whichever view is visible by rebuilding home (safe default)
         self.user_home()
+
+    def remove_song_from_playlist_and_refresh(self, song, playlist_name: str):
+        """Hapus lagu dari playlist yang sedang dibuka."""
+        try:
+            ok = self.user.remove_from_playlist(song.id, playlist_name)
+        except Exception:
+            ok = False
+        if ok:
+            messagebox.showinfo("Berhasil", f"Lagu dihapus dari '{playlist_name}'")
+        else:
+            messagebox.showwarning("Gagal", "Lagu tidak ditemukan di playlist.")
+        # refresh halaman playlist
+        self.user_playlist()
+
 
     def add_playlist_and_notify(self, song):
         playlists = self.user.get_playlists()
@@ -1337,36 +1457,125 @@ class MusicPlayerGUI:
             command=new_playlist
         ).pack(pady=10)
 
-    # PLAYBACK CONTROL HANDLERS (PLAY, NEXT, PREV, STOP)
+    
+    # --------------------------------------------------
+    # PLAYER UI HELPERS (ikon, toggle play/pause, random play)
+    # --------------------------------------------------
+    def _sync_bottom_play_icon(self):
+        """Update ikon tombol play/pause di bottom bar sesuai state player."""
+        if self.btn_play_toggle is None:
+            return
+        try:
+            if self.player.current_song is None:
+                self.btn_play_toggle.configure(text="▶")
+            else:
+                self.btn_play_toggle.configure(text=("⏸" if self.player.is_playing else "▶"))
+        except Exception:
+            pass
+
+    def _update_all_play_icons(self):
+        """Update ikon tombol play pada kartu lagu (user & admin) agar konsisten."""
+        # reset semua tombol
+        for btn in list(self.play_buttons.values()):
+            try:
+                btn.configure(text="▶")
+            except Exception:
+                pass
+        for btn in list(self.admin_play_buttons.values()):
+            try:
+                btn.configure(text="▶")
+            except Exception:
+                pass
+
+        # set tombol lagu aktif
+        if self.player.current_song is not None:
+            sid = self.player.current_song.id
+            icon = "⏸" if self.player.is_playing else "▶"
+            if sid in self.play_buttons:
+                try:
+                    self.play_buttons[sid].configure(text=icon)
+                except Exception:
+                    pass
+            if sid in self.admin_play_buttons:
+                try:
+                    self.admin_play_buttons[sid].configure(text=icon)
+                except Exception:
+                    pass
+
+        self._sync_bottom_play_icon()
+
+    def _get_ordered_songs_for_mode(self, mode: str):
+        """Ambil list lagu sesuai mode tanpa mengubah state.
+        mode: 'library' | 'playlist'
+        """
+        try:
+            if mode == "playlist":
+                pll = self.player.playlists.get(self.player.current_playlist_name)
+                if pll is None:
+                    pll = self.player.playlists.get("My Playlist")
+                base = pll.get_all() if pll else []
+            else:
+                base = self.player.library.get_all()
+
+            if self.player.list_order == "desc":
+                return list(reversed(base))
+            return list(base)
+        except Exception:
+            return []
+
+    def play_random(self, prefer_mode: Optional[str] = None):
+        """Play lagu random (dipakai saat belum ada lagu yang diputar).
+
+        - Akan mencoba prefer_mode terlebih dahulu (kalau ada)
+        - Lalu mode saat ini
+        - Lalu fallback ke library, kemudian playlist
+        """
+        modes_to_try = []
+        if prefer_mode:
+            modes_to_try.append(prefer_mode)
+        if self.player.current_mode not in modes_to_try:
+            modes_to_try.append(self.player.current_mode)
+        if "library" not in modes_to_try:
+            modes_to_try.append("library")
+        if "playlist" not in modes_to_try:
+            modes_to_try.append("playlist")
+
+        for mode in modes_to_try:
+            songs = self._get_ordered_songs_for_mode(mode)
+            if songs:
+                song = random.choice(songs)
+                self.play_song(song, mode)
+                return True
+        return False
+
+    def toggle_play_pause_current(self):
+        """Toggle Play/Pause dari tombol di bottom bar.
+        Jika belum ada lagu → play random.
+        """
+        if self.player.current_song is None:
+            # Admin selalu random dari library dulu saat belum ada lagu
+            prefer = "library" if (self.current_user and getattr(self.current_user, "username", "") == "admin") else None
+            ok = self.play_random(prefer_mode=prefer)
+            if not ok:
+                messagebox.showinfo("Info", "Belum ada lagu di library/playlist.")
+            return
+
+        # jika sedang playing -> pause
+        if self.player.is_playing:
+            self.pause_current()
+        else:
+            self.resume_current()
+        self._update_all_play_icons()
+
+# PLAYBACK CONTROL HANDLERS (PLAY, NEXT, PREV, STOP)
    
     def play_song(self, song, mode):
         # single consolidated play_song method
         self.player.current_song = song
         self.player.is_playing = True
 
-        # Reset semua tombol ke ▶
-        for btn in self.play_buttons.values():
-            try:
-                btn.configure(text="▶")
-            except Exception:
-                pass
-        for btn in self.admin_play_buttons.values():
-            try:
-                btn.configure(text="⏵")
-            except Exception:
-                pass
-
-        # Tombol lagu yang sedang diputar berubah jadi ⏸ (if exists)
-        if song.id in self.play_buttons:
-            try:
-                self.play_buttons[song.id].configure(text="⏸")
-            except Exception:
-                pass
-        if song.id in self.admin_play_buttons:
-            try:
-                self.admin_play_buttons[song.id].configure(text="⏸")
-            except Exception:
-                pass
+        # Update ikon tombol play (user & admin)
+        self._update_all_play_icons()
 
         # track mode & history
         self.player.current_mode = mode
@@ -1403,17 +1612,28 @@ class MusicPlayerGUI:
                 messagebox.showwarning("No File", "This song has no audio file.")
         except Exception as e:
             messagebox.showerror("Error", f"Cannot play song:\n{e}")
+            self.player.is_playing = False
+            self._update_all_play_icons()
 
         # start progress updater
         self._start_progress_updater()
 
     def play_prev(self):
-        # Prev should go to previous item in visual list (which may be above)
+        # Jika belum ada lagu yang diputar → play random
+        if self.player.current_song is None:
+            self.play_random()
+            return
+
         prev = self.player.prev_song()
         if prev:
             self.play_song(prev, self.player.current_mode)
 
     def play_next(self):
+        # Jika belum ada lagu yang diputar → play random
+        if self.player.current_song is None:
+            self.play_random()
+            return
+
         nxt = self.player.next_song()
         if nxt:
             self.play_song(nxt, self.player.current_mode)
@@ -1424,18 +1644,27 @@ class MusicPlayerGUI:
             self.play_song(self.player.current_song, self.player.current_mode)
 
     def pause_current(self):
+        # Pause hanya jika ada lagu aktif
+        if self.player.current_song is None:
+            return
         try:
             pygame.mixer.music.pause()
             self.player.is_playing = False
-        except Exception as e:
-            messagebox.showerror("Error", f"Cannot pause: {e}")
+        except Exception:
+            # ignore if device unavailable
+            self.player.is_playing = False
+        self._update_all_play_icons()
 
     def resume_current(self):
+        # Resume hanya jika ada lagu aktif
+        if self.player.current_song is None:
+            return
         try:
             pygame.mixer.music.unpause()
             self.player.is_playing = True
-        except Exception as e:
-            messagebox.showerror("Error", f"Cannot resume: {e}")
+        except Exception:
+            self.player.is_playing = True
+        self._update_all_play_icons()
 
     def stop_current(self):
         try:
@@ -1446,7 +1675,7 @@ class MusicPlayerGUI:
         self.player.is_playing = False
         self.player.current_song = None
 
-        # Reset UI
+        # Reset UI labels
         if hasattr(self, "now_playing") and self.now_playing is not None:
             try:
                 self.now_playing.configure(text="No song playing")
@@ -1465,9 +1694,17 @@ class MusicPlayerGUI:
             except Exception:
                 pass
             self._progress_update_job = None
-        # reset progress UI
-        self.progress_bar.set(0.0)
+
+        # reset progress UI (jika ada)
+        try:
+            if self.progress_bar is not None:
+                self.progress_bar.set(0.0)
+        except Exception:
+            pass
         self._set_progress_elapsed_label(0.0)
+        self._set_progress_total_label(0.0)
+
+        self._update_all_play_icons()
 
     # Progress helpers
 
