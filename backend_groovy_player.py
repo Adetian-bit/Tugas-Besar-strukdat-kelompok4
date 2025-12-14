@@ -1,11 +1,3 @@
-"""Backend / Model layer for Groovy Player (NO_DUPLICATE version).
-
-Contains:
-- Data models (Song, User)
-- Data structures (DoublyLinkedList, Queue, Stack)
-- Core domain logic (MusicPlayer) incl. persistence for library & playlists
-"""
-
 from __future__ import annotations
 
 import json
