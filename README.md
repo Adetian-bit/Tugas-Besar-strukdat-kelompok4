@@ -57,12 +57,15 @@ pip install customtkinter pygame
 ### 2. Menjalankan Program
 
 Buka terminal / command prompt pada folder project, lalu jalankan ketiga program ini:
+Pertama Jalankan file backend_groovy_player.py
 ```bash
 python backend_groovy_player.py
 ```
+Kedua Jalankan file controller_groovy_player.py
 ```bash
 python controller_groovy_player.py
 ```
+Ketiga Jalankan frontend_groovy_player.py
 ```bash
 python frontend_groovy_player.py
 ```
