@@ -87,7 +87,7 @@ Pastikan file audio (mp3/wav) tersedia di perangkat Anda saat menambahkan lagu.
 **Kelompok 4**
 
 1. Muhammad Ilham Maulana
-2. Muhammad Al Fayyad Nezati Al-Qasim
+2. Muhammad Alfayyadh Nezzati Qosim
 3. Muhammad Ade Sulistiansyah
 
 ---
