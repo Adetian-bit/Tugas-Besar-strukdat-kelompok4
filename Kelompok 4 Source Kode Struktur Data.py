@@ -46,50 +46,7 @@ class Node:
         self.next = None
 
 
-class DoublyLinkedList:
-    def __init__(self):
-        self.head = None
-        self.tail = None
-        self.size = 0
 
-    def add(self, song: Song):
-        new_node = Node(song)
-        if self.head is None:
-            self.head = self.tail = new_node
-        else:
-            self.tail.next = new_node
-            new_node.prev = self.tail
-            self.tail = new_node
-        self.size += 1
-        return True
-
-    def delete(self, song_id):
-        current = self.head
-        while current:
-            if current.song.id == song_id:
-                if current.prev:
-                    current.prev.next = current.next
-                else:
-                    self.head = current.next
-                if current.next:
-                    current.next.prev = current.prev
-                else:
-                    self.tail = current.prev
-                self.size -= 1
-                return True
-            current = current.next
-        return False
-
-    def search(self, keyword):
-        results = []
-        current = self.head
-        keyword = keyword.lower()
-        while current:
-            s = current.song
-            if (keyword in (s.title or '').lower() or keyword in (s.artist or '').lower() or keyword in (s.genre or '').lower()):
-                results.append(s)
-            current = current.next
-        return results
 
     def get_all(self):
         songs = []
@@ -1883,3 +1840,4 @@ class MusicPlayerGUI:
 if __name__ == "__main__":
     app = MusicPlayerGUI()
     app.run()
+
