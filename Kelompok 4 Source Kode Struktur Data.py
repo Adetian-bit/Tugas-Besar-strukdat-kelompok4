@@ -12,19 +12,7 @@ from typing import Optional
         self.file_path = file_path
 
     def __str__(self):
-        return f"{self.id}: {self.title} - {self.artist} ({self.genre})"
 
-
-class User:
-    def __init__(self, username, fullname):
-        self.username = username
-        self.fullname = fullname
-
-
-class Node:
-    def __init__(self, song):
-        self.song = song
-        self.prev = None
         self.next = None
 
 
@@ -1810,6 +1798,7 @@ class MusicPlayerGUI:
 if __name__ == "__main__":
     app = MusicPlayerGUI()
     app.run()
+
 
 
 
