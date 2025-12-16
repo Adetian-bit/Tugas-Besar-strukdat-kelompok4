@@ -7,24 +7,6 @@ import json
 import time
 import math
 from typing import Optional
-
-# safer init for pygame mixer
-try:
-    pygame.mixer.init()
-except Exception:
-    # If audio device unavailable (CI / headless), continue but playback will fail at runtime.
-    pass
-
-
-# BACKEND - MODELS & DS
-
-class Song:
-    def __init__(self, id, title, artist, genre, album, year=None, duration=None, file_path=None):
-        self.id = id
-        self.title = title
-        self.artist = artist
-        self.genre = genre
-        self.album = album
         self.year = year
         self.duration = duration  # optional string like "3:45"
         self.file_path = file_path
@@ -1828,5 +1810,6 @@ class MusicPlayerGUI:
 if __name__ == "__main__":
     app = MusicPlayerGUI()
     app.run()
+
 
 
