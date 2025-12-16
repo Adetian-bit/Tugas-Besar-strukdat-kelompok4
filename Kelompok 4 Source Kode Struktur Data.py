@@ -154,19 +154,7 @@ class MusicPlayer:
 
             # check title+artist duplicate
             if t and a:
-                if self._norm(s.title) == t and self._norm(s.artist) == a:
-                    return True
-
-        return False
-
-    #  playlist persistence (multi-playlist) 
-    def save_playlists(self):
-        """Simpan semua playlist ke playlists.json sebagai dict {nama_playlist: [id_lagu, ...]}."""
-        try:
-            data = {}
-            for name, dll in self.playlists.items():
-                data[name] = [song.id for song in dll.get_all()]
-            with open("playlists.json", "w") as f:
+                        with open("playlists.json", "w") as f:
                 json.dump(data, f, indent=4)
         except Exception as e:
             print("Failed to save playlists:", e)
@@ -1840,4 +1828,5 @@ class MusicPlayerGUI:
 if __name__ == "__main__":
     app = MusicPlayerGUI()
     app.run()
+
 
