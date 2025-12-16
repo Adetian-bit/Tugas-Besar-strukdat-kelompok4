@@ -7,16 +7,89 @@ import json
 import time
 import math
 from typing import Optional
+
+# safer init for pygame mixer
+try:
+    pygame.mixer.init()
+except Exception:
+    # If audio device unavailable (CI / headless), continue but playback will fail at runtime.
+    pass
+
+
+# BACKEND - MODELS & DS
+
+class Song:
+    def __init__(self, id, title, artist, genre, album, year=None, duration=None, file_path=None):
+        self.id = id
+        self.title = title
+        self.artist = artist
+        self.genre = genre
+        self.album = album
         self.year = year
         self.duration = duration  # optional string like "3:45"
         self.file_path = file_path
 
     def __str__(self):
+        return f"{self.id}: {self.title} - {self.artist} ({self.genre})"
 
+
+class User:
+    def __init__(self, username, fullname):
+        self.username = username
+        self.fullname = fullname
+
+
+class Node:
+    def __init__(self, song):
+        self.song = song
+        self.prev = None
         self.next = None
 
 
+class DoublyLinkedList:
+    def __init__(self):
+        self.head = None
+        self.tail = None
+        self.size = 0
 
+    def add(self, song: Song):
+        new_node = Node(song)
+        if self.head is None:
+            self.head = self.tail = new_node
+        else:
+            self.tail.next = new_node
+            new_node.prev = self.tail
+            self.tail = new_node
+        self.size += 1
+        return True
+
+    def delete(self, song_id):
+        current = self.head
+        while current:
+            if current.song.id == song_id:
+                if current.prev:
+                    current.prev.next = current.next
+                else:
+                    self.head = current.next
+                if current.next:
+                    current.next.prev = current.prev
+                else:
+                    self.tail = current.prev
+                self.size -= 1
+                return True
+            current = current.next
+        return False
+
+    def search(self, keyword):
+        results = []
+        current = self.head
+        keyword = keyword.lower()
+        while current:
+            s = current.song
+            if (keyword in (s.title or '').lower() or keyword in (s.artist or '').lower() or keyword in (s.genre or '').lower()):
+                results.append(s)
+            current = current.next
+        return results
 
     def get_all(self):
         songs = []
@@ -124,7 +197,19 @@ class MusicPlayer:
 
             # check title+artist duplicate
             if t and a:
-                        with open("playlists.json", "w") as f:
+                if self._norm(s.title) == t and self._norm(s.artist) == a:
+                    return True
+
+        return False
+
+    #  playlist persistence (multi-playlist) 
+    def save_playlists(self):
+        """Simpan semua playlist ke playlists.json sebagai dict {nama_playlist: [id_lagu, ...]}."""
+        try:
+            data = {}
+            for name, dll in self.playlists.items():
+                data[name] = [song.id for song in dll.get_all()]
+            with open("playlists.json", "w") as f:
                 json.dump(data, f, indent=4)
         except Exception as e:
             print("Failed to save playlists:", e)
@@ -1798,7 +1883,3 @@ class MusicPlayerGUI:
 if __name__ == "__main__":
     app = MusicPlayerGUI()
     app.run()
-
-
-
-
